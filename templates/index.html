@@ -69,9 +69,23 @@
         </div>
 
         <div class="row mb-4">
-            <div class="col-md-6">
-                <label for="languageSelect" class="form-label">Select Language:</label>
+            <div class="col-md-4">
+                <label for="languageSelect" class="form-label">Input Language:</label>
                 <select id="languageSelect" class="form-select"></select>
+            </div>
+            <div class="col-md-4">
+                <label for="modelSelect" class="form-label">Transcription Model:</label>
+                <select id="modelSelect" class="form-select">
+                    <option value="gpt-4o-mini-transcribe">Standard Quality (Faster)</option>
+                    <option value="gpt-4o-transcribe">Higher Quality (Slower)</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="translateSelect" class="form-label">Translate To (Optional):</label>
+                <select id="translateSelect" class="form-select">
+                    <option value="">No Translation</option>
+                    <!-- Will be populated with languages -->
+                </select>
             </div>
         </div>
 
@@ -97,7 +111,7 @@
                     <div class="card-body">
                         <form id="uploadForm" enctype="multipart/form-data">
                             <div class="mb-3">
-                                <input class="form-control" type="file" id="audioFile" accept=".wav, .mp3, .ogg, .m4a">
+                                <input class="form-control" type="file" id="audioFile" accept=".wav, .mp3, .ogg, .m4a, .webm">
                             </div>
                             <button type="submit" class="btn btn-primary">Transcribe</button>
                         </form>
@@ -107,16 +121,32 @@
         </div>
 
         <div class="row">
-            <div class="col-12">
+            <div class="col-12 mb-3">
                 <div class="card">
                     <div class="card-header">
                         <div class="d-flex justify-content-between align-items-center">
                             <h5>Transcript</h5>
-                            <button id="copyButton" class="btn btn-sm btn-outline-secondary">Copy</button>
+                            <button id="copyTranscriptButton" class="btn btn-sm btn-outline-secondary">Copy</button>
                         </div>
                     </div>
                     <div class="card-body">
                         <div id="transcript">Transcribed text will appear here...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-12 mb-3">
+                <div class="card" id="translationCard" style="display: none;">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5>Translation</h5>
+                            <button id="copyTranslationButton" class="btn btn-sm btn-outline-secondary">Copy</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="translation">Translated text will appear here...</div>
                     </div>
                 </div>
             </div>
@@ -132,18 +162,41 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://kit.fontawesome.com/4b1c7a602f.js" crossorigin="anonymous"></script>
     <script>
+        // Debug mode for troubleshooting
+        const DEBUG = true;
+        
+        // Helper function for logging when in debug mode
+        function debugLog(...args) {
+            if (DEBUG) {
+                console.log('[DEBUG]', ...args);
+            }
+        }
+        
         document.addEventListener('DOMContentLoaded', () => {
             // Load languages
             fetch('/api/languages')
                 .then(response => response.json())
                 .then(languages => {
                     const languageSelect = document.getElementById('languageSelect');
-                    Object.entries(languages).forEach(([name, code]) => {
-                        const option = document.createElement('option');
-                        option.value = code;
-                        option.textContent = name;
-                        if (code === 'en') option.selected = true;
-                        languageSelect.appendChild(option);
+                    const translateSelect = document.getElementById('translateSelect');
+                    
+                    // Sort language names alphabetically
+                    const sortedLanguages = Object.entries(languages).sort((a, b) => a[0].localeCompare(b[0]));
+                    
+                    // Populate language selects
+                    sortedLanguages.forEach(([name, code]) => {
+                        // Input language options
+                        const inputOption = document.createElement('option');
+                        inputOption.value = code;
+                        inputOption.textContent = name;
+                        if (code === 'en') inputOption.selected = true;
+                        languageSelect.appendChild(inputOption);
+                        
+                        // Translation language options
+                        const translateOption = document.createElement('option');
+                        translateOption.value = code;
+                        translateOption.textContent = name;
+                        translateSelect.appendChild(translateOption);
                     });
                 });
 
@@ -161,6 +214,13 @@
                 const formData = new FormData();
                 formData.append('file', fileInput.files[0]);
                 formData.append('language', document.getElementById('languageSelect').value);
+                formData.append('model', document.getElementById('modelSelect').value);
+                
+                // Add translation target if selected
+                const translateTo = document.getElementById('translateSelect').value;
+                if (translateTo) {
+                    formData.append('translate_to', translateTo);
+                }
 
                 showStatus('Transcribing your audio...', 'info');
                 
@@ -173,8 +233,19 @@
                     const result = await response.json();
                     
                     if (response.ok) {
+                        // Update transcript
                         document.getElementById('transcript').textContent = result.text;
-                        showStatus('Transcription complete!', 'success');
+                        
+                        // Handle translation if present
+                        const translationCard = document.getElementById('translationCard');
+                        if (result.translated_text) {
+                            document.getElementById('translation').textContent = result.translated_text;
+                            translationCard.style.display = 'block';
+                            showStatus('Transcription and translation complete!', 'success');
+                        } else {
+                            translationCard.style.display = 'none';
+                            showStatus('Transcription complete!', 'success');
+                        }
                     } else {
                         showStatus(`Error: ${result.error}`, 'danger');
                     }
@@ -183,11 +254,19 @@
                 }
             });
 
-            // Copy button
-            document.getElementById('copyButton').addEventListener('click', () => {
+            // Copy transcript button
+            document.getElementById('copyTranscriptButton').addEventListener('click', () => {
                 const text = document.getElementById('transcript').textContent;
                 navigator.clipboard.writeText(text)
-                    .then(() => showStatus('Copied to clipboard!', 'success'))
+                    .then(() => showStatus('Transcript copied to clipboard!', 'success'))
+                    .catch(err => showStatus('Failed to copy: ' + err, 'danger'));
+            });
+            
+            // Copy translation button
+            document.getElementById('copyTranslationButton').addEventListener('click', () => {
+                const text = document.getElementById('translation').textContent;
+                navigator.clipboard.writeText(text)
+                    .then(() => showStatus('Translation copied to clipboard!', 'success'))
                     .catch(err => showStatus('Failed to copy: ' + err, 'danger'));
             });
 
@@ -208,7 +287,20 @@
                         isRecording = true;
                         
                         // Create media recorder with specific options
-                        const options = { mimeType: 'audio/webm' };
+                        let options = {};
+                        try {
+                            // Try to use audio/webm which has better compatibility with OpenAI
+                            if (MediaRecorder.isTypeSupported('audio/webm')) {
+                                options = { mimeType: 'audio/webm' };
+                            } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                                options = { mimeType: 'audio/mp4' };
+                            } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+                                options = { mimeType: 'audio/ogg' };
+                            }
+                        } catch (err) {
+                            console.error('MediaRecorder error:', err);
+                        }
+                        console.log('Using media recorder with options:', options);
                         mediaRecorder = new MediaRecorder(stream, options);
                         audioChunks = [];
                         
@@ -219,36 +311,94 @@
                         
                         // When recording stops
                         mediaRecorder.addEventListener('stop', () => {
-                            // Use WebM format instead of WAV
-                            const audioBlob = new Blob(audioChunks);
-                            const audioFile = new File([audioBlob], 'recording.webm', { type: 'audio/webm' });
+                            // Create blob with proper MIME type
+                            const mimeType = mediaRecorder.mimeType || 'audio/webm';
+                            debugLog('Media recorder MIME type:', mimeType);
+                            
+                            // Check if we have audio data
+                            debugLog('Audio chunks:', audioChunks.length);
+                            if (audioChunks.length === 0) {
+                                showStatus('No audio data recorded. Please try again.', 'warning');
+                                return;
+                            }
+                            
+                            const audioBlob = new Blob(audioChunks, { type: mimeType });
+                            debugLog('Audio blob size:', audioBlob.size, 'bytes');
+                            
+                            // Determine file extension based on MIME type
+                            let fileExtension = 'webm';
+                            if (mimeType.includes('mp4')) fileExtension = 'm4a';
+                            else if (mimeType.includes('ogg')) fileExtension = 'ogg';
+                            
+                            debugLog(`Using file extension: ${fileExtension}`);
+                            
+                            // Force to wav as a fallback option that OpenAI definitely supports
+                            // const audioFile = new File([audioBlob], `recording.wav`, { type: 'audio/wav' });
+                            const audioFile = new File([audioBlob], `recording.${fileExtension}`, { type: mimeType });
+                            debugLog('Created file:', audioFile.name, audioFile.type, audioFile.size, 'bytes');
                             
                             // Create form data and add file
                             const formData = new FormData();
                             formData.append('file', audioFile);
                             formData.append('language', document.getElementById('languageSelect').value);
+                            formData.append('model', document.getElementById('modelSelect').value);
+                            
+                            // Add translation target if selected
+                            const translateTo = document.getElementById('translateSelect').value;
+                            if (translateTo) {
+                                formData.append('translate_to', translateTo);
+                            }
                             
                             // Show transcribing status
                             showStatus('Transcribing your recording...', 'info');
                             
                             // Send to server
-                            fetch('/api/transcribe', {
-                                method: 'POST',
-                                body: formData
-                            })
-                            .then(response => response.json())
-                            .then(result => {
-                                if (result.text) {
-                                    document.getElementById('transcript').textContent = result.text;
-                                    showStatus('Transcription complete!', 'success');
-                                } else {
-                                    showStatus('Transcription failed. Please try again.', 'danger');
-                                }
-                            })
-                            .catch(error => {
-                                console.error('Full error details:', error);
-                                showStatus(`Error: ${error.message}`, 'danger');
-                            });
+                            try {
+                                showStatus('Transcribing your recording...', 'info');
+                                console.log('Sending audio file to server...');
+                                
+                                fetch('/api/transcribe', {
+                                    method: 'POST',
+                                    body: formData
+                                })
+                                .then(response => {
+                                    console.log('Response received:', response.status);
+                                    if (!response.ok) {
+                                        throw new Error(`Server error: ${response.status}`);
+                                    }
+                                    return response.json();
+                                })
+                                .then(result => {
+                                    console.log('API result:', result);
+                                    if (result.text) {
+                                        // Update transcript
+                                        document.getElementById('transcript').textContent = result.text;
+                                        
+                                        // Handle translation if present
+                                        const translationCard = document.getElementById('translationCard');
+                                        if (result.translated_text) {
+                                            document.getElementById('translation').textContent = result.translated_text;
+                                            translationCard.style.display = 'block';
+                                            showStatus('Transcription and translation complete!', 'success');
+                                        } else {
+                                            translationCard.style.display = 'none';
+                                            showStatus('Transcription complete!', 'success');
+                                        }
+                                    } else if (result.error) {
+                                        console.error('Server error:', result.error);
+                                        showStatus(`Error: ${result.error}`, 'danger', true);
+                                    } else {
+                                        showStatus('Transcription failed. Please try again.', 'danger');
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Fetch error:', error);
+                                    showStatus(`Network error: ${error.message}`, 'danger', true);
+                                });
+                            } catch (error) {
+                                console.error('Critical error:', error);
+                                showStatus(`Critical error: ${error.message}`, 'danger', true);
+                            }
                             
                             // Reset UI
                             recordButton.classList.remove('recording');
@@ -259,8 +409,22 @@
                         mediaRecorder.start(1000);  // Get a dataavailable event every second
                         
                     } catch (error) {
-                        showStatus('Microphone access denied or not available', 'warning');
-                        console.error('Error accessing microphone:', error);
+                        if (error.name === 'NotAllowedError') {
+                            showStatus('Microphone access denied. Please enable microphone permissions in your browser settings. Click the camera/microphone icon in your address bar and select "Allow".', 'danger', true);
+                            console.error('Microphone permission denied:', error);
+                        } else if (error.name === 'NotFoundError') {
+                            showStatus('No microphone detected on your device. Please connect a microphone and try again.', 'warning', true);
+                            console.error('No microphone found:', error);
+                        } else if (error.name === 'NotReadableError') {
+                            showStatus('Cannot access microphone. It may be in use by another application. Please close other applications that might be using the microphone.', 'warning', true);
+                            console.error('Microphone not readable:', error);
+                        } else if (error.name === 'SecurityError') {
+                            showStatus('Microphone access requires a secure connection (HTTPS). Please access this page via HTTPS or try using localhost.', 'danger', true);
+                            console.error('Security error accessing microphone:', error);
+                        } else {
+                            showStatus('Microphone access error: ' + error.name + '. Please check browser console for details.', 'warning', true);
+                            console.error('Error accessing microphone:', error);
+                        }
                     }
                 } else {
                     // Stop recording
@@ -275,15 +439,17 @@
             });
 
             // Status display
-            function showStatus(message, type = 'info') {
+            function showStatus(message, type = 'info', persistent = false) {
                 const statusEl = document.getElementById('status');
                 statusEl.textContent = message;
                 statusEl.className = `alert alert-${type}`;
                 statusEl.classList.remove('d-none');
                 
-                setTimeout(() => {
-                    statusEl.classList.add('d-none');
-                }, 3000);
+                if (!persistent) {
+                    setTimeout(() => {
+                        statusEl.classList.add('d-none');
+                    }, 3000);
+                }
             }
         });
     </script>
