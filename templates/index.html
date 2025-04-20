@@ -79,7 +79,23 @@
         <div class="row mb-4">
             <div class="col-md-4">
                 <label for="languageSelect" class="form-label">Input Language:</label>
+            <div class="col-md-4">
+                <label for="languageSelect" class="form-label">Input Language:</label>
                 <select id="languageSelect" class="form-select"></select>
+            </div>
+            <div class="col-md-4">
+                <label for="modelSelect" class="form-label">Transcription Model:</label>
+                <select id="modelSelect" class="form-select">
+                    <option value="gpt-4o-mini-transcribe">Standard Quality (Faster)</option>
+                    <option value="gpt-4o-transcribe">Higher Quality (Slower)</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="translateSelect" class="form-label">Translate To (Optional):</label>
+                <select id="translateSelect" class="form-select">
+                    <option value="">No Translation</option>
+                    <!-- Will be populated with languages -->
+                </select>
             </div>
             <div class="col-md-4">
                 <label for="modelSelect" class="form-label">Transcription Model:</label>
@@ -120,6 +136,7 @@
                         <form id="uploadForm" enctype="multipart/form-data">
                             <div class="mb-3">
                                 <input class="form-control" type="file" id="audioFile" accept=".wav, .mp3, .ogg, .m4a, .webm">
+                                <input class="form-control" type="file" id="audioFile" accept=".wav, .mp3, .ogg, .m4a, .webm">
                             </div>
                             <button type="submit" class="btn btn-primary">Transcribe</button>
                         </form>
@@ -129,6 +146,7 @@
         </div>
 
         <div class="row">
+            <div class="col-12 mb-3">
             <div class="col-12 mb-3">
                 <div class="card">
                     <div class="card-header">
@@ -190,12 +208,41 @@
             }
         }
         
+        // Debug mode for troubleshooting
+        const DEBUG = true;
+        
+        // Helper function for logging when in debug mode
+        function debugLog(...args) {
+            if (DEBUG) {
+                console.log('[DEBUG]', ...args);
+            }
+        }
+        
         document.addEventListener('DOMContentLoaded', () => {
             // Load languages
             fetch('/api/languages')
                 .then(response => response.json())
                 .then(languages => {
                     const languageSelect = document.getElementById('languageSelect');
+                    const translateSelect = document.getElementById('translateSelect');
+                    
+                    // Sort language names alphabetically
+                    const sortedLanguages = Object.entries(languages).sort((a, b) => a[0].localeCompare(b[0]));
+                    
+                    // Populate language selects
+                    sortedLanguages.forEach(([name, code]) => {
+                        // Input language options
+                        const inputOption = document.createElement('option');
+                        inputOption.value = code;
+                        inputOption.textContent = name;
+                        if (code === 'en') inputOption.selected = true;
+                        languageSelect.appendChild(inputOption);
+                        
+                        // Translation language options
+                        const translateOption = document.createElement('option');
+                        translateOption.value = code;
+                        translateOption.textContent = name;
+                        translateSelect.appendChild(translateOption);
                     const translateSelect = document.getElementById('translateSelect');
                     
                     // Sort language names alphabetically
@@ -239,6 +286,13 @@
                 if (translateTo) {
                     formData.append('translate_to', translateTo);
                 }
+                formData.append('model', document.getElementById('modelSelect').value);
+                
+                // Add translation target if selected
+                const translateTo = document.getElementById('translateSelect').value;
+                if (translateTo) {
+                    formData.append('translate_to', translateTo);
+                }
 
                 showStatus('Transcribing your audio...', 'info');
                 
@@ -252,7 +306,19 @@
                     
                     if (response.ok) {
                         // Update transcript
+                        // Update transcript
                         document.getElementById('transcript').textContent = result.text;
+                        
+                        // Handle translation if present
+                        const translationCard = document.getElementById('translationCard');
+                        if (result.translated_text) {
+                            document.getElementById('translation').textContent = result.translated_text;
+                            translationCard.style.display = 'block';
+                            showStatus('Transcription and translation complete!', 'success');
+                        } else {
+                            translationCard.style.display = 'none';
+                            showStatus('Transcription complete!', 'success');
+                        }
                         
                         // Handle translation if present
                         const translationCard = document.getElementById('translationCard');
@@ -274,8 +340,19 @@
 
             // Copy transcript button
             document.getElementById('copyTranscriptButton').addEventListener('click', () => {
+            // Copy transcript button
+            document.getElementById('copyTranscriptButton').addEventListener('click', () => {
                 const text = document.getElementById('transcript').textContent;
                 navigator.clipboard.writeText(text)
+                    .then(() => showStatus('Transcript copied to clipboard!', 'success'))
+                    .catch(err => showStatus('Failed to copy: ' + err, 'danger'));
+            });
+            
+            // Copy translation button
+            document.getElementById('copyTranslationButton').addEventListener('click', () => {
+                const text = document.getElementById('translation').textContent;
+                navigator.clipboard.writeText(text)
+                    .then(() => showStatus('Translation copied to clipboard!', 'success'))
                     .then(() => showStatus('Transcript copied to clipboard!', 'success'))
                     .catch(err => showStatus('Failed to copy: ' + err, 'danger'));
             });
@@ -407,6 +484,20 @@
                             console.error('MediaRecorder error:', err);
                         }
                         console.log('Using media recorder with options:', options);
+                        let options = {};
+                        try {
+                            // Try to use audio/webm which has better compatibility with OpenAI
+                            if (MediaRecorder.isTypeSupported('audio/webm')) {
+                                options = { mimeType: 'audio/webm' };
+                            } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                                options = { mimeType: 'audio/mp4' };
+                            } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+                                options = { mimeType: 'audio/ogg' };
+                            }
+                        } catch (err) {
+                            console.error('MediaRecorder error:', err);
+                        }
+                        console.log('Using media recorder with options:', options);
                         mediaRecorder = new MediaRecorder(stream, options);
                         audioChunks = [];
                         
@@ -417,6 +508,31 @@
                         
                         // When recording stops
                         mediaRecorder.addEventListener('stop', () => {
+                            // Create blob with proper MIME type
+                            const mimeType = mediaRecorder.mimeType || 'audio/webm';
+                            debugLog('Media recorder MIME type:', mimeType);
+                            
+                            // Check if we have audio data
+                            debugLog('Audio chunks:', audioChunks.length);
+                            if (audioChunks.length === 0) {
+                                showStatus('No audio data recorded. Please try again.', 'warning');
+                                return;
+                            }
+                            
+                            const audioBlob = new Blob(audioChunks, { type: mimeType });
+                            debugLog('Audio blob size:', audioBlob.size, 'bytes');
+                            
+                            // Determine file extension based on MIME type
+                            let fileExtension = 'webm';
+                            if (mimeType.includes('mp4')) fileExtension = 'm4a';
+                            else if (mimeType.includes('ogg')) fileExtension = 'ogg';
+                            
+                            debugLog(`Using file extension: ${fileExtension}`);
+                            
+                            // Force to wav as a fallback option that OpenAI definitely supports
+                            // const audioFile = new File([audioBlob], `recording.wav`, { type: 'audio/wav' });
+                            const audioFile = new File([audioBlob], `recording.${fileExtension}`, { type: mimeType });
+                            debugLog('Created file:', audioFile.name, audioFile.type, audioFile.size, 'bytes');
                             // Create blob with proper MIME type
                             const mimeType = mediaRecorder.mimeType || 'audio/webm';
                             debugLog('Media recorder MIME type:', mimeType);
@@ -454,11 +570,64 @@
                             if (translateTo) {
                                 formData.append('translate_to', translateTo);
                             }
+                            formData.append('model', document.getElementById('modelSelect').value);
+                            
+                            // Add translation target if selected
+                            const translateTo = document.getElementById('translateSelect').value;
+                            if (translateTo) {
+                                formData.append('translate_to', translateTo);
+                            }
                             
                             // Show transcribing status
                             showStatus('Transcribing your recording...', 'info');
                             
                             // Send to server
+                            try {
+                                showStatus('Transcribing your recording...', 'info');
+                                console.log('Sending audio file to server...');
+                                
+                                fetch('/api/transcribe', {
+                                    method: 'POST',
+                                    body: formData
+                                })
+                                .then(response => {
+                                    console.log('Response received:', response.status);
+                                    if (!response.ok) {
+                                        throw new Error(`Server error: ${response.status}`);
+                                    }
+                                    return response.json();
+                                })
+                                .then(result => {
+                                    console.log('API result:', result);
+                                    if (result.text) {
+                                        // Update transcript
+                                        document.getElementById('transcript').textContent = result.text;
+                                        
+                                        // Handle translation if present
+                                        const translationCard = document.getElementById('translationCard');
+                                        if (result.translated_text) {
+                                            document.getElementById('translation').textContent = result.translated_text;
+                                            translationCard.style.display = 'block';
+                                            showStatus('Transcription and translation complete!', 'success');
+                                        } else {
+                                            translationCard.style.display = 'none';
+                                            showStatus('Transcription complete!', 'success');
+                                        }
+                                    } else if (result.error) {
+                                        console.error('Server error:', result.error);
+                                        showStatus(`Error: ${result.error}`, 'danger', true);
+                                    } else {
+                                        showStatus('Transcription failed. Please try again.', 'danger');
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Fetch error:', error);
+                                    showStatus(`Network error: ${error.message}`, 'danger', true);
+                                });
+                            } catch (error) {
+                                console.error('Critical error:', error);
+                                showStatus(`Critical error: ${error.message}`, 'danger', true);
+                            }
                             try {
                                 showStatus('Transcribing your recording...', 'info');
                                 console.log('Sending audio file to server...');
@@ -531,6 +700,22 @@
                             showStatus('Microphone access error: ' + error.name + '. Please check browser console for details.', 'warning', true);
                             console.error('Error accessing microphone:', error);
                         }
+                        if (error.name === 'NotAllowedError') {
+                            showStatus('Microphone access denied. Please enable microphone permissions in your browser settings. Click the camera/microphone icon in your address bar and select "Allow".', 'danger', true);
+                            console.error('Microphone permission denied:', error);
+                        } else if (error.name === 'NotFoundError') {
+                            showStatus('No microphone detected on your device. Please connect a microphone and try again.', 'warning', true);
+                            console.error('No microphone found:', error);
+                        } else if (error.name === 'NotReadableError') {
+                            showStatus('Cannot access microphone. It may be in use by another application. Please close other applications that might be using the microphone.', 'warning', true);
+                            console.error('Microphone not readable:', error);
+                        } else if (error.name === 'SecurityError') {
+                            showStatus('Microphone access requires a secure connection (HTTPS). Please access this page via HTTPS or try using localhost.', 'danger', true);
+                            console.error('Security error accessing microphone:', error);
+                        } else {
+                            showStatus('Microphone access error: ' + error.name + '. Please check browser console for details.', 'warning', true);
+                            console.error('Error accessing microphone:', error);
+                        }
                     }
                 } else {
                     // Stop recording
@@ -546,11 +731,17 @@
 
             // Status display
             function showStatus(message, type = 'info', persistent = false) {
+            function showStatus(message, type = 'info', persistent = false) {
                 const statusEl = document.getElementById('status');
                 statusEl.textContent = message;
                 statusEl.className = `alert alert-${type}`;
                 statusEl.classList.remove('d-none');
                 
+                if (!persistent) {
+                    setTimeout(() => {
+                        statusEl.classList.add('d-none');
+                    }, 3000);
+                }
                 if (!persistent) {
                     setTimeout(() => {
                         statusEl.classList.add('d-none');
