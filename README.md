@@ -61,12 +61,22 @@ python modsimple.py
 
 ### Web Application
 
-The project also includes a web interface that can be deployed to Render or run locally:
+The project also includes a web interface that can be deployed to Render or run locally.
 
 To run the web application locally:
+
 ```bash
+# Standard HTTP mode (microphone access may not work in most browsers)
 flask run
+
+# HTTPS mode with self-signed certificate (recommended for microphone access)
+flask run --cert=adhoc
 ```
+
+**Important**: For microphone access to work, you need to:
+1. Run the app with HTTPS enabled (using the `--cert=adhoc` flag)
+2. When your browser warns about the self-signed certificate, proceed anyway
+3. Grant microphone permissions when prompted by your browser
 
 ## Deployment to Render
 
@@ -95,7 +105,9 @@ flask run
    - Click "Create Web Service"
    - Render will automatically build and deploy your application
 
-## Troubleshooting Deployment
+## Troubleshooting
+
+### Deployment Issues
 
 If you encounter issues with PyAudio installation on Render, try these steps:
 
@@ -104,6 +116,27 @@ If you encounter issues with PyAudio installation on Render, try these steps:
 2. **Alternative: Use render.yaml** - This configuration file can also be used to set up your deployment.
 
 3. **Check Render logs** - If your deployment fails, check the logs for specific errors.
+
+### Microphone Access Issues
+
+If you're seeing "Microphone access is denied" errors:
+
+1. **Browser permissions** - When first using the app, your browser will ask for microphone access. Make sure to click "Allow". If you accidentally denied permission:
+   - **Chrome**: Click the lock/info icon in the address bar, then change the microphone setting to "Allow"
+   - **Firefox**: Click the lock icon, go to "Permissions" and enable microphone access
+   - **Safari**: Go to Safari Preferences > Websites > Microphone and allow access for the site
+
+2. **HTTPS requirement** - Browsers require HTTPS for microphone access. When running locally:
+   - With SSL: `flask run --cert=adhoc` (requires pyopenssl)
+   - Without SSL: Use localhost (http://127.0.0.1:5000) which browsers treat as secure
+   - Alternative: Use a secure tunnel like ngrok: `ngrok http 5000`
+
+3. **Device permissions** - Ensure your computer's system settings allow browser access to the microphone:
+   - **Windows**: Settings > Privacy > Microphone
+   - **macOS**: System Preferences > Security & Privacy > Privacy > Microphone
+   - **Linux**: Varies by distribution, check your sound settings
+
+4. **Try a different browser** - If one browser doesn't work, try Chrome, Firefox, or Edge
 
 ## Contributing
 
